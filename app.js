@@ -6,22 +6,23 @@
 // Define the threshold for low stock
 const LOW_STOCK_THRESHOLD = 5;
 
-// Utility: Get items from localStorage
-function getItems() {
-    return JSON.parse(localStorage.getItem('inventoryItems') || '[]');
-}
-
-// Utility: Save items to localStorage
-function saveItems(items) {
-    localStorage.setItem('inventoryItems', JSON.stringify(items));
+// Utility: Get items from API
+async function getItems() {
+    try {
+        const response = await fetch('items_api.php');
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to fetch items:', error);
+        return [];
+    }
 }
 
 // Dashboard summary logic
-function renderDashboard() {
+async function renderDashboard() {
     const summaryDiv = document.getElementById('dashboard-summary');
     if (!summaryDiv) return;
 
-    const items = getItems();
+    const items = await getItems();
     const totalItems = items.length;
     const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity), 0);
 
@@ -63,11 +64,11 @@ function renderDashboard() {
 }
 
 // Items CRUD logic
-function renderItemsPage() {
+async function renderItemsPage() {
     const container = document.getElementById('items-container');
     if (!container) return;
 
-    let items = getItems();
+    let items = await getItems();
 
     // Form for adding/editing items
     let formHTML = `
@@ -103,8 +104,8 @@ function renderItemsPage() {
                         <td>${item.name}</td>
                         <td>${item.quantity}</td>
                         <td>
-                            <button data-edit="${idx}">Edit</button>
-                            <button data-delete="${idx}">Delete</button>
+                            <button data-edit="${item.id}">Edit</button>
+                            <button data-delete="${item.id}">Delete</button>
                         </td>
                     </tr>
                 `).join('')}
@@ -117,21 +118,35 @@ function renderItemsPage() {
     // Form handlers
     const form = document.getElementById('item-form');
     const cancelBtn = document.getElementById('cancel-edit');
-    form.onsubmit = function(e) {
+    
+    form.onsubmit = async function(e) {
         e.preventDefault();
         const id = document.getElementById('item-id').value;
         const name = document.getElementById('item-name').value.trim();
         const quantity = Number(document.getElementById('item-quantity').value);
 
-        if (id) {
-            // Edit existing
-            items[id] = { name, quantity };
-        } else {
-            // Add new
-            items.push({ name, quantity });
+        try {
+            const response = await fetch('items_api.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: id ? 'update' : 'add',
+                    id: id,
+                    name: name,
+                    quantity: quantity
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                renderItemsPage();
+            }
+        } catch (error) {
+            console.error('Failed to save item:', error);
+            alert('Failed to save item. Please try again.');
         }
-        saveItems(items);
-        renderItemsPage();
     };
 
     cancelBtn.onclick = function() {
@@ -143,20 +158,41 @@ function renderItemsPage() {
     // Edit/Delete handlers
     container.querySelectorAll('button[data-edit]').forEach(btn => {
         btn.onclick = function() {
-            const idx = btn.getAttribute('data-edit');
-            document.getElementById('item-id').value = idx;
-            document.getElementById('item-name').value = items[idx].name;
-            document.getElementById('item-quantity').value = items[idx].quantity;
-            cancelBtn.style.display = 'inline';
+            const id = btn.getAttribute('data-edit');
+            const item = items.find(item => item.id == id);
+            if (item) {
+                document.getElementById('item-id').value = id;
+                document.getElementById('item-name').value = item.name;
+                document.getElementById('item-quantity').value = item.quantity;
+                cancelBtn.style.display = 'inline';
+            }
         };
     });
+
     container.querySelectorAll('button[data-delete]').forEach(btn => {
-        btn.onclick = function() {
-            const idx = btn.getAttribute('data-delete');
+        btn.onclick = async function() {
+            const id = btn.getAttribute('data-delete');
             if (confirm('Delete this item?')) {
-                items.splice(idx, 1);
-                saveItems(items);
-                renderItemsPage();
+                try {
+                    const response = await fetch('items_api.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            action: 'delete',
+                            id: id
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    if (data.success) {
+                        renderItemsPage();
+                    }
+                } catch (error) {
+                    console.error('Failed to delete item:', error);
+                    alert('Failed to delete item. Please try again.');
+                }
             }
         };
     });
